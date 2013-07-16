@@ -1,0 +1,127 @@
+<?php
+
+/**
+ * Implements hook_perm()
+ */
+function cove_api_perm() {
+  return array(
+    'administer cove_api',
+  );
+}
+
+/**
+ * Implements hook_menu()
+ */
+function cove_api_menu() {
+  $items = array();
+  //Admin Menu
+  $items['admin/config/system/cove_api'] = array(
+    'title' => 'PBS COVE API',
+    'description' => 'Manage settings for the PBS COVE API',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cove_api_admin_site_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer cove_api'),
+    'file' => 'cove_api.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Gets configuration settings.
+ * 
+ * @return Array  Associative array of config settings (api_key, callsign, channels)
+ */
+function cove_api_get_config() {
+  $config = &drupal_static(__FUNCTION__);
+  if (!isset($config)) {
+    $config = array(
+      'api_key' => variable_get('cove_api_key'),
+      'api_secret' => variable_get('cove_api_secret'),
+    );
+  }
+  return $config;
+}
+
+/**
+ * Make a request to the PBS Schedule API
+ *
+ * @param String  $method  The API method for the request, for example 'vidoes'
+ * @param Array   $args    Associative array of arguments to add to the url. For example array('filter_title' => 'nova')
+ * @param Integer $cache_expire The number of seconds from now to expire the cache for this request, or 0 to not cache request
+ * @param String  $api_key The "API ID" from PBS (will get from config if not set)
+ * @param String  $api_secret The "API Secret" from PBS (will get from config if not set)
+ *
+ * @return Object Response data from the request
+ */
+
+function cove_api_request($method, $args = array(), $cache_expire = 600, $api_key = null, $api_secret = null) {
+  
+  $config = cove_api_get_config();
+  $api_key = (empty($api_key)) ? $config['api_key'] : $api_key;
+  $api_secret = (empty($api_secret)) ? $config['api_secret'] : $api_secret;
+  
+  //We do this here to standardize cache key
+  ksort($args, SORT_STRING);
+  
+  if ($cache_expire) {
+    $cache_key = 'cove_api:' . md5($method.implode('-',$args));
+    $cache = cache_get($cache_key);
+  }
+  
+  //Return cache if available and not expired
+  if (!empty($cache->data) && time() < $cache->expire) {
+    $response_data = $cache->data;
+  }
+  //Otherwise, make a new request and cache it
+  else {
+    $timestamp = time();
+    $nonce = md5(drupal_random_bytes(6));
+    $uri = 'http://api.pbs.org/cove/v1/' . $method . '/?' . http_build_query($args);
+    
+    $signature = cove_api_signature($uri, $timestamp, $api_key, $api_secret, $nonce);
+    
+    $options['headers'] = array(
+      'X-PBSAuth-Timestamp' => $timestamp,
+      'X-PBSAuth-Consumer-Key' => $api_key,
+      'X-PBSAuth-Signature' => $signature,
+      'X-PBSAuth-Nonce' => $nonce,
+    );
+    
+    $response = drupal_http_request($uri, $options);
+    
+    if ($response->code === '200') {
+      $response_data = json_decode($response->data);
+      if (!empty($cache_expire) && !empty($cache_key)) {
+        cache_set($cache_key, $response_data, 'cache', time() + $cache_expire);
+      }
+    }
+    else if ($response->code === '500') {
+      watchdog('pbs_schedule', '500 error from PBS COVE API. <br />Request was <pre>%request</pre>. <br />Error was %error', array('%error' => $response->error, '%request' => $response->request), WATCHDOG_ERROR);
+      continue;
+    }
+  }
+  if (!empty($response_data)) {
+    $data = $response_data;
+  }
+  if (!empty($data)) return $data;
+}
+
+/**
+ * Generate a signature for a COVE API Request
+ *
+ * @param $uri String The "normalized" request URI (see API documentation)
+ * @param $timestamp  Integer Epoch timestamp of the request
+ * @param $api_key    String  COVE API Key
+ * @param $api_secret String  COVE API Secret
+ * @param $nonce      String  The nonce for this request
+ *
+ * @return String  The signature for the request
+ */
+function cove_api_signature($uri, $timestamp, $api_key, $api_secret, $nonce) {
+  $string_to_sign = "GET".$uri.$timestamp.$api_key.$nonce;
+  $signature = hash_hmac('sha1',$string_to_sign, $api_secret);
+  
+  return $signature;
+}
