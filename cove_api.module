@@ -98,7 +98,7 @@ function cove_api_request($method, $args = array(), $cache_expire = 600, $api_ke
       }
     }
     else if ($response->code === '500') {
-      watchdog('pbs_schedule', '500 error from PBS COVE API. <br />Request was <pre>%request</pre>. <br />Error was %error', array('%error' => $response->error, '%request' => $response->request), WATCHDOG_ERROR);
+      watchdog('cove_api', '500 error from PBS COVE API. <br />Request was <pre>%request</pre>. <br />Error was %error', array('%error' => $response->error, '%request' => $response->request), WATCHDOG_ERROR);
       continue;
     }
   }
