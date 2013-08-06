@@ -47,8 +47,11 @@ function cove_api_get_config() {
 /**
  * Make a request to the PBS Schedule API
  *
- * @param String  $method  The API method for the request, for example 'vidoes'
- * @param Array   $args    Associative array of arguments to add to the url. For example array('filter_title' => 'nova')
+ * @param String/Array  $method  The API method for the request, can be a string or array.
+ *                               Arrays will be exploded to allow for things like
+ *                               '/programs/408/?args=val'
+ * @param Array   $args    Associative array of arguments to add to the url.
+ *                         For example array('filter_title' => 'nova')
  * @param Integer $cache_expire The number of seconds from now to expire the cache for this request, or 0 to not cache request
  * @param String  $api_key The "API ID" from PBS (will get from config if not set)
  * @param String  $api_secret The "API Secret" from PBS (will get from config if not set)
@@ -61,6 +64,10 @@ function cove_api_request($method, $args = array(), $cache_expire = 600, $api_ke
   $config = cove_api_get_config();
   $api_key = (empty($api_key)) ? $config['api_key'] : $api_key;
   $api_secret = (empty($api_secret)) ? $config['api_secret'] : $api_secret;
+  
+  if (is_array($method)) {
+    $method = implode('/', $method);
+  }
   
   //We do this here to standardize cache key
   ksort($args, SORT_STRING);
@@ -78,7 +85,10 @@ function cove_api_request($method, $args = array(), $cache_expire = 600, $api_ke
   else {
     $timestamp = time();
     $nonce = md5(drupal_random_bytes(6));
-    $uri = 'http://api.pbs.org/cove/v1/' . $method . '/?' . http_build_query($args);
+    $uri = 'http://api.pbs.org/cove/v1/' . $method . '/';
+    if (!empty($args)) {
+      $uri .= '?' . http_build_query($args);
+    }
     
     $signature = cove_api_signature($uri, $timestamp, $api_key, $api_secret, $nonce);
     
